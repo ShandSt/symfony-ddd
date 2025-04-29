@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Presentation\Controller;
 
-use App\Application\Service\UserService;
+use App\Port\Input\UserServiceInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -13,43 +15,82 @@ use Symfony\Component\Routing\Annotation\Route;
 class UserController extends AbstractController
 {
     public function __construct(
-        private UserService $userService
-    ) {}
+        private readonly UserServiceInterface $userService
+    ) {
+    }
 
-    #[Route('', methods: ['POST'])]
-    public function create(Request $request): JsonResponse
+    #[Route('', name: 'register_user', methods: ['POST'])]
+    public function register(Request $request): JsonResponse
     {
         $data = json_decode($request->getContent(), true);
-        
+
         try {
-            $user = $this->userService->createUser(
+            $user = $this->userService->registerUser(
                 $data['email'] ?? '',
+                $data['password'] ?? '',
                 $data['name'] ?? ''
             );
 
             return $this->json([
                 'id' => $user->getId(),
-                'email' => $user->getEmail(),
+                'email' => $user->getEmail()->getValue(),
                 'name' => $user->getName()
             ], Response::HTTP_CREATED);
-        } catch (\RuntimeException $e) {
-            return $this->json(['error' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        } catch (\InvalidArgumentException $e) {
+            return $this->json([
+                'error' => $e->getMessage()
+            ], Response::HTTP_BAD_REQUEST);
+        } catch (\Exception $e) {
+            return $this->json([
+                'error' => 'An error occurred during registration'
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
-    #[Route('/{id}', methods: ['GET'])]
-    public function get(int $id): JsonResponse
+    #[Route('/authenticate', name: 'authenticate_user', methods: ['POST'])]
+    public function authenticate(Request $request): JsonResponse
     {
-        $user = $this->userService->getUserById($id);
+        $data = json_decode($request->getContent(), true);
 
-        if (!$user) {
-            return $this->json(['error' => 'User not found'], Response::HTTP_NOT_FOUND);
+        $user = $this->userService->authenticateUser(
+            $data['email'] ?? '',
+            $data['password'] ?? ''
+        );
+
+        if ($user === null) {
+            return $this->json([
+                'error' => 'Invalid credentials'
+            ], Response::HTTP_UNAUTHORIZED);
         }
 
         return $this->json([
             'id' => $user->getId(),
-            'email' => $user->getEmail(),
+            'email' => $user->getEmail()->getValue(),
             'name' => $user->getName()
         ]);
+    }
+
+    #[Route('/{id}', name: 'update_user_profile', methods: ['PUT'])]
+    public function updateProfile(int $id, Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+
+        try {
+            $user = $this->userService->updateUserProfile($id, $data);
+
+            return $this->json([
+                'id' => $user->getId(),
+                'email' => $user->getEmail()->getValue(),
+                'name' => $user->getName()
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->json([
+                'error' => $e->getMessage()
+            ], Response::HTTP_BAD_REQUEST);
+        } catch (\Exception $e) {
+            return $this->json([
+                'error' => 'An error occurred while updating profile'
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
     }
 } 
